@@ -1,5 +1,28 @@
+// =============================================================================
+// CONFIGURACIÓN
+// =============================================================================
+
+const CONFIG = {
+  sheets: {
+    enlaces: 'Enlaces de acceso',
+    respuestas: 'respuestas'
+  },
+  email: {
+    asunto: "Confirmación de inscripción en seminario de investigación",
+    remitente: "Hub de Información | Apoyo a la Investigación",
+    cc: "researchsupport@continental.edu.pe"
+  }
+};
+
+// =============================================================================
+// FUNCIONES AUXILIARES
+// =============================================================================
+
+/**
+ * Busca el enlace de acceso para un taller
+ */
 const lookURL = (soughtValue, fil, col, fil2, col2) => {
-  const sheet = SpreadsheetApp.getActive().getSheetByName('Enlaces de acceso');
+  const sheet = SpreadsheetApp.getActive().getSheetByName(CONFIG.sheets.enlaces);
   let comparativeValue;
   while ((comparativeValue = sheet.getRange(fil, col).getValue()) !== "") {
     if (soughtValue === comparativeValue) {
@@ -11,8 +34,37 @@ const lookURL = (soughtValue, fil, col, fil2, col2) => {
   return null;
 };
 
-const emailOnFormSubmit = (e) => {
+/**
+ * Parsea la información de un taller
+ */
+const parsearInfoTaller = (tallerString) => {
+  const partes = tallerString.split(" / ");
+  const nombre = partes[0];
+  const fechaHoraParts = partes[1].split(", ");
+  const fecha = `${fechaHoraParts[0]}, ${fechaHoraParts[1]}`;
+  const hora = fechaHoraParts[2];
+  return { nombre, fecha, hora };
+};
 
+/**
+ * Genera el HTML de un taller
+ */
+const generarHTMLTaller = (taller, enlace, esUltimo) => {
+  const horaDisplay = esUltimo ? taller.hora : `${taller.hora}.`;
+  return `<hr><p>Sesión: <strong>${taller.nombre}</strong></p>` +
+    `<p>Fecha: <strong>${taller.fecha}</strong></p>` +
+    `<p>Hora: <strong>${horaDisplay}</strong></p>` +
+    `<p>Tipo de sesión: <strong>Virtual</strong></p>` +
+    `<p>Enlace de acceso: <strong><a href="${enlace}" style="font-size:12px;">${enlace}</a></strong></p>` +
+    (esUltimo ? '<hr>' : '');
+};
+
+// =============================================================================
+// FUNCIÓN PRINCIPAL
+// =============================================================================
+
+const emailOnFormSubmit = (e) => {
+  // Extraer datos del formulario
   const userResponse = {
     timestamp: e.values[0],
     email: e.values[1],
@@ -26,58 +78,68 @@ const emailOnFormSubmit = (e) => {
     dpp: e.values[11],
   };
 
+  // Procesar talleres
+  const capacitaciones = userResponse.list.split("., ");
+  const responsesSheet = SpreadsheetApp.getActive().getSheetByName(CONFIG.sheets.respuestas);
   let descripcionTalleres = "";
-  let enlaceAcceso = "#";
 
-  let Capacitaciones = userResponse.list.split("., ");
-  for (let i = 0; i < Capacitaciones.length; i++) {
-    let nombreTaller = Capacitaciones[i].split(" / ")[0];
-    let fechaTaller = Capacitaciones[i].split(" / ")[1].split(", ")[0] + ", " + Capacitaciones[i].split(" / ")[1].split(", ")[1];
-    let horaTaller = Capacitaciones[i].split(" / ")[1].split(", ")[2];
+  capacitaciones.forEach((capacitacion, index) => {
+    const esUltimo = index === capacitaciones.length - 1;
+    const taller = parsearInfoTaller(capacitacion);
 
-    if (i + 1 == Capacitaciones.length) {
-      enlaceAcceso = lookURL(Capacitaciones[i], 1, 1, 1, 2);
-      descripcionTalleres += '<hr><p>Sesión: <strong>' + nombreTaller + '</strong></p>' +
-        '<p>Fecha: <strong>' + fechaTaller + '</strong></p>' +
-        '<p>Hora: <strong>' + horaTaller + '</strong></p>' +
-        '<p>Tipo de sesión: <strong>Virtual</strong></p>' +
-        '<p>Enlace de acceso: <strong><a href="' + enlaceAcceso + '" style="font-size:12px;">' + enlaceAcceso + '</a></strong></p><hr>';
-    } else {
-      enlaceAcceso = lookURL(Capacitaciones[i] + ".", 1, 1, 1, 2);
-      descripcionTalleres += '<hr><p>Sesión: <strong>' + nombreTaller + '</strong></p>' +
-        '<p>Fecha: <strong>' + fechaTaller + '</strong></p>' +
-        '<p>Hora: <strong>' + horaTaller + '.</strong></p>' +
-        '<p>Tipo de sesión: <strong>Virtual</strong></p>' +
-        '<p>Enlace de acceso: <strong><a href="' + enlaceAcceso + '" style="font-size:12px;">' + enlaceAcceso + '</a></strong></p>';
-    }
+    // Buscar enlace
+    const claveEnlace = esUltimo ? capacitacion : capacitacion + ".";
+    const enlaceAcceso = lookURL(claveEnlace, 1, 1, 1, 2) || "#";
 
-    //    Pasar información a pestaña dividida
-    let newSheet = SpreadsheetApp.getActive().getSheetByName('respuestas');
+    // Generar HTML
+    descripcionTalleres += generarHTMLTaller(taller, enlaceAcceso, esUltimo);
 
-    newSheet.appendRow([userResponse.timestamp, userResponse.email, userResponse.name, userResponse.type, userResponse.campus, userResponse.modalityOfStudies, userResponse.academicProgram, userResponse.phone, (i + 1 == Capacitaciones.length) ? Capacitaciones[i] : Capacitaciones[i] + ".", userResponse.dpp])
-  }
+    // Guardar en hoja de respuestas
+    responsesSheet.appendRow([
+      userResponse.timestamp,
+      userResponse.email,
+      userResponse.name,
+      userResponse.type,
+      userResponse.campus,
+      userResponse.modalityOfStudies,
+      userResponse.academicProgram,
+      userResponse.phone,
+      claveEnlace,
+      userResponse.dpp
+    ]);
+  });
 
-  // emailBody es para aquellos dispositivos que no pueden renderizar HTML, es texto plano.
+  // Preparar correo
   const emailBody = `Hola: ${userResponse.name}, ¡Confirmamos tu inscripción en las sesiones solicitadas!
-Cualquier consulta por favor no dudes en escribirnos a: researchsupport@continental.edu.pe o contactarte a nuestros números telefónicos según el campus o sede más cercano.`;
+Cualquier consulta por favor no dudes en escribirnos a: ${CONFIG.email.cc} o contactarte a nuestros números telefónicos según el campus o sede más cercano.`;
 
-  // emailTemplate obtiene la plantilla HTML con formato.
   const emailTemplate = HtmlService.createTemplateFromFile("emailTemplate");
   emailTemplate.nombreUsuario = userResponse.name;
   emailTemplate.descripcionTalleres = descripcionTalleres;
   const htmlBody = emailTemplate.evaluate().getContent();
 
-  const advancedOpts = {
-    name: "Hub de Información | Apoyo a la Investigación",
+  const emailOptions = {
+    name: CONFIG.email.remitente,
     htmlBody: htmlBody,
-    cc: "researchsupport@continental.edu.pe"
-    // cc: "fromeror@continental.edu.pe"
+    cc: CONFIG.email.cc
   };
 
-  MailApp.sendEmail(userResponse.email, "Confirmación de inscripción en seminario de investigación", emailBody, advancedOpts);
-}
+  // Enviar correo
+  MailApp.sendEmail(userResponse.email, CONFIG.email.asunto, emailBody, emailOptions);
+};
 
-const hasScript = () => { SpreadsheetApp.getUi().alert("\nName: AI | Inscripción - Seminario") }
+// =============================================================================
+// FUNCIONES DE INTERFAZ
+// =============================================================================
 
-const onOpen = () => { SpreadsheetApp.getUi().createMenu("🟢").addItem("Ver información del script", "hasScript").addToUi() }
+const hasScript = () => {
+  SpreadsheetApp.getUi().alert("Información del Script\n\nName: AI | Inscripción - Seminario\nVersión: 2.0");
+};
+
+const onOpen = () => {
+  SpreadsheetApp.getUi()
+    .createMenu("🟢 Seminario")
+    .addItem("Ver información del script", "hasScript")
+    .addToUi();
+};
 
